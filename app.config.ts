@@ -1,6 +1,6 @@
 // Carrega variáveis de ambiente (.env) sem sobrescrever as do sistema/EAS.
 import "./scripts/load-env.js";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import type { ExpoConfig } from "expo/config";
 
 /**
@@ -13,10 +13,20 @@ import type { ExpoConfig } from "expo/config";
 const PACKAGE_ID = process.env.APP_PACKAGE_ID?.trim() || "com.conectabarra.app"; // precisa ser IGUAL ao nome do pacote cadastrado no Firebase
 const isPlaceholder = (value?: string) => !value || /^(COLOQUE|SEU|SUA|TROQUE|PREENCHA|<|\.\.\.)/i.test(value.trim());
 const clean = (value?: string) => (isPlaceholder(value) ? "" : value!.trim());
+const easBaseEnv = (() => {
+  try {
+    const eas = JSON.parse(readFileSync("./eas.json", "utf8")) as { build?: { base?: { env?: Record<string, string> } } };
+    return eas.build?.base?.env ?? {};
+  } catch {
+    return {};
+  }
+})();
 
-const apiUrl = clean(process.env.EXPO_PUBLIC_API_URL).replace(/\/$/, "");
-const projectId = clean(process.env.EXPO_PUBLIC_EAS_PROJECT_ID);
-const owner = clean(process.env.EXPO_OWNER);
+// O EAS injeta build.env no worker remoto, mas não em todas as etapas locais de leitura do app.config.ts.
+// O fallback para eas.json mantém `npm run build:apk` determinístico sem gravar segredos no código.
+const apiUrl = clean(process.env.EXPO_PUBLIC_API_URL || easBaseEnv.EXPO_PUBLIC_API_URL).replace(/\/$/, "");
+const projectId = clean(process.env.EXPO_PUBLIC_EAS_PROJECT_ID || easBaseEnv.EXPO_PUBLIC_EAS_PROJECT_ID);
+const owner = clean(process.env.EXPO_OWNER || easBaseEnv.EXPO_OWNER);
 const googleServicesFile = clean(process.env.GOOGLE_SERVICES_JSON) || (existsSync("./google-services.json") ? "./google-services.json" : "");
 
 // Compilação "valendo" (EAS ou npm run build:*): exige tudo. `expo start` em desenvolvimento não exige.
