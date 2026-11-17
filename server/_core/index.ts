@@ -15,7 +15,7 @@ import { fcmConfigured, fcmProjectId } from "../fcm";
 import { emailProvider, emailSender, adminNotificationEmail } from "../email";
 import { configItems, printConfigReport } from "./config-report";
 
-const APP_VERSION = "2.0.0";
+const APP_VERSION = "2.0.1";
 
 /** Limitador simples em memória (por IP) para rotas sensíveis. Para vários servidores, use Redis. */
 function rateLimit(windowMs: number, max: number) {
