@@ -1,0 +1,12 @@
+# HTTPS (Let's Encrypt automático) para a API e também para o WebSocket (wss://) usado no tempo real.
+{$API_DOMAIN} {
+  encode gzip
+  reverse_proxy api:3000 {
+    # Conexão ativa com a API a cada 10 s e reaproveitamento (mantém WebSockets estáveis).
+    health_uri /api/health
+    health_interval 10s
+    # Não derrubar WebSockets abertos quando a configuração é recarregada.
+    stream_close_delay 5m
+    flush_interval -1
+  }
+}

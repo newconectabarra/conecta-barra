@@ -1,0 +1,85 @@
+CONECTA BARRA 1.0.4 — MODERNIZAÇÃO VISUAL E DE NAVEGAÇÃO (mantendo o azul)
+==========================================================================
+
+IMPORTANTE (leia antes)
+- Não consegui executar o app aqui (sem rede e sem dependências instaladas). Verifiquei só a
+  SINTAXE de todos os arquivos (0 erros). A checagem de tipos e o visual precisam ser
+  conferidos por você: "npm run check" e um teste em aparelho/emulador.
+- Não foram adicionadas bibliotecas novas nem código nativo (usa expo-haptics, expo-linear-gradient
+  e Animated, que já estavam no projeto). Por isso esta versão pode ir por atualização OTA
+  para quem já tem o APK 1.0.4, SE o teste abaixo passar.
+- Seus ajustes anteriores (eas.json, google-services.json, app.config.ts, server/_core/index.ts)
+  foram mantidos como estavam no zip enviado.
+
+1. O QUE MUDOU
+--------------
+A) Botões (todos, todas as telas e componentes)
+   - Novo componente components/pressable.tsx, usado no lugar do Pressable do React Native.
+   - Ao tocar: leve redução de escala e opacidade; vibração suave nos botões/abas.
+   - Botão desabilitado fica translúcido automaticamente.
+B) Campos de texto (16 telas)
+   - Novo components/text-input.tsx: borda azul ao focar, cursor e placeholder na cor da marca.
+   - Altura (54) e cantos (16) padronizados nos campos; botões de envio (56) com cantos 18.
+C) Cartões e painéis (45 estilos)
+   - Cantos mais arredondados (+2) e sombra azul suave; bordas mais leves (theme.config.js).
+D) Carregamento e estados vazios/erro
+   - Spinner trocado por "skeleton" (blocos pulsantes no formato do conteúdo) em QueryState e Avisos.
+   - Vazio e erro agora com ícone em círculo, cartão maior e botões de 46–48 px.
+E) Animações
+   - Itens entram com fade + subida suave (Início, Prefeitura, lista de Avisos), escalonados.
+   - Transição entre telas: deslizar da direita (260 ms); entre abas: fade.
+F) Navegação
+   - Barra de abas flutuante mais arredondada, ícone ativo com leve zoom, pílula maior.
+   - Botão "Voltar" em pílula translúcida (mais visível sobre o azul).
+   - Cabeçalho com gradiente em 3 tons, cantos 36 e uma terceira bolha decorativa.
+G) Tokens de design (constants/brand.ts): RADIUS e SHADOW para novas telas.
+
+Arquivos novos: components/pressable.tsx, components/text-input.tsx, components/ui-kit.tsx
+(Reveal, Skeleton, SkeletonCard, IconBadge).
+
+2. COMO TESTAR ANTES DE PUBLICAR
+--------------------------------
+   npm ci
+   npm run check          # tipos; se aparecer erro, envie a mensagem para corrigirmos
+   npx expo start         # abra no Expo Go/emulador (ou APK de desenvolvimento)
+Percorra: Início, Pedidos, Prefeitura, Avisos, Conta, Login, Nova solicitação, Painel admin.
+Confira: toque nos botões (escala/vibração), foco nos campos, carregamento (ative modo avião
+e puxe para atualizar), modo escuro, texto grande nas configurações de acessibilidade.
+
+3. COMO PUBLICAR
+----------------
+Opção 1 — OTA (mais rápido; só para aparelhos com APK 1.0.4):
+   npm run update:ota -- "Visual moderno"
+   Feche e abra o app duas vezes para receber.
+Opção 2 — Novo APK:
+   npm run build:apk      (teste)   |   npm run build:aab   (Play Store)
+
+4. AJUSTES FÁCEIS
+-----------------
+- Sombra dos cartões: procure shadowOpacity: 0.08 nas telas (ou use SHADOW.card).
+- Velocidade das transições: animationDuration em app/_layout.tsx.
+- Desligar vibração em um botão: <Pressable haptic={false} ...>.
+- Desligar o efeito de escala: <Pressable pressScale={1} ...>.
+
+5. O QUE NÃO FOI FEITO (e por quê)
+----------------------------------
+- Fonte nova (ex.: Inter): exige instalar pacote e gerar novo APK.
+- Redesenho completo de cada tela (layout novo): sem poder ver o app rodando, preferi
+  melhorias seguras e globais. Se quiser, envie capturas das telas que mais incomodam
+  e redesenhamos uma a uma.
+- Ícones novos: o app usa ícones Material/SF mapeados em components/ui/icon-symbol.tsx.
+
+6. CORREÇÃO: "SEM TEMPO REAL" (selo do cabeçalho)
+-------------------------------------------------
+Causas encontradas:
+ a) Sem login (ou ao abrir o app) o selo mostrava "Sem tempo real" porque o estado inicial era "offline".
+    -> Agora: sem sessão o selo some; ao abrir mostra "Conectando…" até ficar "Ao vivo".
+ b) Cadastro ainda pendente: o servidor recusava o WebSocket, então o morador via "Sem tempo real" até ser
+    aprovado (e não recebia a aprovação na hora).
+    -> Agora o servidor aceita conexão de cadastro pendente, mas só entrega eventos endereçados a ele
+       (ex.: "sua conta foi aprovada"); comunicados e dados de outros continuam bloqueados. Bloqueados seguem recusados.
+ c) Servidor acordando (Render gratuito): a primeira tentativa falhava e o selo ia direto para "Sem tempo real".
+    -> Agora acorda o servidor via /api/health, tem limite de 20 s por tentativa e mostra "Conectando…" nas
+       primeiras 6 tentativas; só depois "Sem tempo real".
+Arquivos: lib/realtime.ts, components/realtime-provider.tsx, server/realtime.ts.
+Publicar: o servidor precisa de novo deploy (item b); o app pode ir por OTA (npm run update:ota).

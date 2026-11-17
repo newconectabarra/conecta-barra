@@ -1,0 +1,40 @@
+{
+  "cli": {
+    "version": ">= 12.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "base": {
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://conecta-barra.onrender.com",
+        "EXPO_PUBLIC_EAS_PROJECT_ID": "1425cd3c-112a-482b-b2dc-d5ac80b25191",
+        "EXPO_OWNER": "newconectabarra"
+      }
+    },
+    "preview": {
+      "extends": "base",
+      "distribution": "internal",
+      "autoIncrement": true,
+      "channel": "preview",
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "production": {
+      "extends": "base",
+      "channel": "production",
+      "autoIncrement": true,
+      "android": {
+        "buildType": "app-bundle"
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      "android": {
+        "track": "internal",
+        "releaseStatus": "draft"
+      }
+    }
+  }
+}

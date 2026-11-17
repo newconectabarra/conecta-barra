@@ -1,0 +1,32 @@
+# Mantém a API do Render (plano gratuito) acordada: o Render hiberna após ~15 min sem acessos.
+# Gratuito em repositório público. O GitHub pode atrasar execuções agendadas em alguns minutos
+# e DESATIVA agendamentos após 60 dias sem atividade no repositório (basta um commit ou reativar em Actions).
+#
+# CONFIGURAÇÃO OBRIGATÓRIA: no GitHub → Settings → Secrets and variables → Actions → aba "Variables" → New repository variable
+#   Nome: API_URL     Valor: https://SEU-SERVIDOR.onrender.com    (sem barra no final)
+# Alternativa sem GitHub: cron-job.org (guia, passo 10).
+name: keep-alive
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Acordar API
+        env:
+          API_URL: ${{ vars.API_URL }}
+        run: |
+          if [ -z "$API_URL" ]; then
+            echo "::error::Variável API_URL não definida. Crie em Settings > Secrets and variables > Actions > Variables (veja GUIA-DE-IMPLANTACAO.md, passo 10)."
+            exit 1
+          fi
+          for i in 1 2 3; do
+            if curl -fsS --max-time 70 "$API_URL/api/health"; then echo; exit 0; fi
+            echo "tentativa $i falhou; aguardando"; sleep 20
+          done
+          exit 1

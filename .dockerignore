@@ -1,0 +1,12 @@
+node_modules
+android
+ios
+.expo
+app
+components
+hooks
+lib
+assets
+constants
+.env
+uploads

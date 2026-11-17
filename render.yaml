@@ -1,0 +1,48 @@
+# OPCIONAL: "Blueprint" do Render. O jeito mais simples e garantido é criar o Web Service manualmente pelo painel
+# (GUIA-DE-IMPLANTACAO.md, passo 4). Se usar este arquivo, TODAS as variáveis marcadas `sync: false` pedem que você
+# digite o valor no painel — nenhum segredo ou conta fica gravado aqui.
+services:
+  - type: web
+    name: conecta-barra-api          # o nome vira parte do endereço: https://<nome>.onrender.com (troque se estiver ocupado)
+    runtime: docker                  # usa o Dockerfile da raiz (imagem enxuta só do servidor)
+    dockerfilePath: ./Dockerfile
+    plan: free                       # gratuito: hiberna após ~15 min sem acessos (veja keep-alive no guia, passo 10)
+    # O tempo real mantém os aparelhos conectados em memória: use SEMPRE 1 instância.
+    numInstances: 1
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_SSL
+        value: "true"
+      - key: DB_CONNECTION_LIMIT
+        value: "5"
+      - key: DATABASE_URL            # conexão do TiDB Cloud (guia, passo 3)
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATA_ENCRYPTION_KEY     # `openssl rand -hex 32` — guarde uma cópia; NUNCA troque depois
+        sync: false
+      - key: ADMIN_USERNAME
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: ADMIN_FORCE_ENV_PASSWORD   # só "true" se esquecer a senha trocada no app: volta a valer ADMIN_PASSWORD
+        value: "false"
+      - key: BREVO_API_KEY           # guia, passo 6
+        sync: false
+      - key: BREVO_SENDER_EMAIL
+        sync: false
+      - key: ADMIN_NOTIFICATION_EMAIL
+        sync: false
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON   # guia, passo 7
+        sync: false
+      # Opcionais (login com Google, guia passo 8):
+      - key: GOOGLE_WEB_CLIENT_ID
+        sync: false
+      - key: GOOGLE_WEB_CLIENT_SECRET
+        sync: false
+      # Origens de NAVEGADOR autorizadas (vírgula). O app Android não precisa. Deixe vazio se não usa versão web.
+      - key: ALLOWED_ORIGINS
+        value: ""
