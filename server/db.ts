@@ -360,11 +360,20 @@ export async function deleteNotificationToken(userId: number, token: string) {
 export async function listPushTokensForUsers(userIds: number[], category: string, respectPreferences = true) {
   const database = await getDb();
   if (!database || userIds.length === 0) return [];
-  const tokens = await database.select({ userId: notificationTokens.userId, token: notificationTokens.token }).from(notificationTokens).where(inArray(notificationTokens.userId, userIds));
+  const tokens = await database.select({ userId: notificationTokens.userId, token: notificationTokens.token, platform: notificationTokens.platform }).from(notificationTokens).where(inArray(notificationTokens.userId, userIds));
   if (!respectPreferences) return tokens;
   const disabledPreferences = await database.select({ userId: notificationPreferences.userId }).from(notificationPreferences).where(and(inArray(notificationPreferences.userId, userIds), eq(notificationPreferences.category, category), eq(notificationPreferences.enabled, false)));
   const disabled = new Set(disabledPreferences.map((item) => item.userId));
   return tokens.filter((item) => !disabled.has(item.userId));
+}
+
+/** Evita recriar a mesma mensagem quando um fluxo de cadastro/retry é executado duas vezes em poucos segundos. */
+export async function hasRecentAppNotification(data: { userId: number; type: string; body: string; withinMs?: number }) {
+  const database = await getDb();
+  if (!database) return false;
+  const since = new Date(Date.now() - (data.withinMs ?? 60_000));
+  const rows = await database.select({ id: appNotifications.id }).from(appNotifications).where(and(eq(appNotifications.userId, data.userId), eq(appNotifications.type, data.type), eq(appNotifications.body, data.body), gt(appNotifications.createdAt, since))).limit(1);
+  return rows.length > 0;
 }
 
 /** Apaga tokens antigos da mesma instalação do app (identificada por "fcm:<id>" ou "expo:<id>"), mantendo o atual. */
@@ -372,6 +381,13 @@ export async function deleteOtherDeviceTokens(installId: string, keepToken: stri
   const database = await getDb();
   if (!database) return;
   await database.delete(notificationTokens).where(and(inArray(notificationTokens.platform, [`fcm:${installId}`, `expo:${installId}`]), ne(notificationTokens.token, keepToken)));
+}
+
+/** Remove registros criados por versões antigas que identificavam apenas android/ios, sem installId. */
+export async function deleteLegacyDeviceTokens(userId: number) {
+  const database = await getDb();
+  if (!database) return;
+  await database.delete(notificationTokens).where(and(eq(notificationTokens.userId, userId), inArray(notificationTokens.platform, ["android", "ios"])));
 }
 
 export async function deleteNotificationTokens(tokens: string[]) {
