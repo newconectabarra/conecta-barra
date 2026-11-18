@@ -367,6 +367,7 @@ export const appRouter = router({
   notifications: router({
     registerDevice: protectedProcedure.input(z.object({ token: z.string().min(20).max(512), platform: z.string().regex(/^(android|ios|(fcm|expo):[a-z0-9]{6,20})$/) })).mutation(async ({ ctx, input }) => {
       const result = await db.upsertNotificationToken({ userId: ctx.user.id, token: input.token, platform: input.platform });
+      await db.deleteLegacyDeviceTokens(ctx.user.id).catch(() => undefined);
       // "fcm:<id>" / "expo:<id>" identifica a instalação: remove tokens antigos do MESMO aparelho (token renovado ou trocado de tipo) para não duplicar notificações.
       const installId = input.platform.split(":")[1];
       if (installId) await db.deleteOtherDeviceTokens(installId, input.token).catch(() => undefined);
