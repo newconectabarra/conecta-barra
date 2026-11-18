@@ -173,7 +173,17 @@ async function sendViaFcm(rows: Array<{ token: string }>, notice: NoticeInput) {
 }
 
 async function sendRemotePush(userIds: number[], notice: NoticeInput, options?: { respectPreferences?: boolean }): Promise<PushDeliveryResult> {
-  const tokenRows = await db.listPushTokensForUsers(userIds, notice.category, options?.respectPreferences ?? true);
+  const rawTokenRows = await db.listPushTokensForUsers(userIds, notice.category, options?.respectPreferences ?? true);
+  // Uma instalação pode ter deixado um token Expo antigo depois de migrar para FCM.
+  // Mantém somente um token por instalação e dá preferência ao FCM nativo.
+  const tokenByInstallation = new Map<string, (typeof rawTokenRows)[number]>();
+  for (const row of rawTokenRows) {
+    const platform = row.platform ?? "legacy";
+    const installation = platform.includes(":") ? platform.split(":").slice(1).join(":") : `${row.userId}:${row.token}`;
+    const current = tokenByInstallation.get(installation);
+    if (!current || (platform.startsWith("fcm:") && !current.platform.startsWith("fcm:"))) tokenByInstallation.set(installation, row);
+  }
+  const tokenRows = [...tokenByInstallation.values()];
   // Dois tipos de token convivem: "ExponentPushToken[...]" (via Expo) e token FCM nativo (envio direto, gratuito).
   const expoRows = tokenRows.filter((row) => isExpoPushToken(row.token));
   const fcmRows = tokenRows.filter((row) => !isExpoPushToken(row.token) && row.token.length >= 100);
@@ -203,6 +213,7 @@ async function sendRemotePush(userIds: number[], notice: NoticeInput, options?: 
 }
 
 async function notifyUser(userId: number, notice: NoticeInput) {
+  if (await db.hasRecentAppNotification({ userId, type: notice.type, body: notice.body })) return;
   await db.createAppNotification({
     userId,
     type: notice.type,
@@ -216,7 +227,10 @@ async function notifyUser(userId: number, notice: NoticeInput) {
 
 async function notifyRoles(roles: Array<"user" | "admin">, notice: NoticeInput, neighborhood?: string | null) {
   const recipients = await db.listNotificationRecipients(roles, neighborhood);
-  const userIds = [...new Set(recipients.map((recipient) => recipient.userId))];
+  const candidateIds = [...new Set(recipients.map((recipient) => recipient.userId))];
+  const recent = await Promise.all(candidateIds.map(async (userId) => ({ userId, exists: await db.hasRecentAppNotification({ userId, type: notice.type, body: notice.body }) })));
+  const userIds = recent.filter((item) => !item.exists).map((item) => item.userId);
+  if (!userIds.length) return;
   await db.createAppNotifications(userIds, {
     type: notice.type,
     title: notice.title,
@@ -231,8 +245,8 @@ export async function notifyResidentRegistration(input: { userId: number; reside
   await notifyRoles(["admin"], {
     type: "resident-registration",
     category: "account",
-    title: "Novo cadastro de morador",
-    body: `${input.residentName} enviou um cadastro para análise.`,
+    title: "Novo morador cadastrado",
+    body: `Um novo morador foi cadastrado (${input.residentName}).`,
     data: { userId: input.userId, screen: "residents" },
   });
 }
