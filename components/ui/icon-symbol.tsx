@@ -24,6 +24,8 @@ const MAPPING = {
   "person.3.fill": "groups",
   "tray.fill": "inbox",
   "arrow.triangle.2.circlepath": "autorenew",
+  "checkmark": "check",
+  "circle": "radio-button-unchecked",
   "checkmark.circle.fill": "check-circle",
   "person.crop.circle.fill": "account-circle",
   "link": "link",

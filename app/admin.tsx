@@ -5,7 +5,7 @@ import * as Device from "expo-device";
 import { Alert, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 import { TextInput } from "@/components/text-input";
 import { Pressable } from "@/components/pressable";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import { Image } from "expo-image";
@@ -44,12 +44,14 @@ const periodFilters = [
   { value: "30", label: "30 dias" },
   { value: "90", label: "90 dias" },
 ] as const;
+const QUEUE_PAGE_SIZE = 8;
 
 export default function AdminDashboard() {
   const colors = useColors();
   const [statusFilter, setStatusFilter] = useState<(typeof statusFilters)[number]["value"]>("all");
   const [periodFilter, setPeriodFilter] = useState<(typeof periodFilters)[number]["value"]>("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [queueLimit, setQueueLimit] = useState(QUEUE_PAGE_SIZE);
   const shortageReport = trpc.reports.waterShortage.useQuery(undefined, { enabled: false });
   const [bairro, setBairro] = useState<string | undefined>(undefined);
   const bairros = trpc.neighborhoods.list.useQuery(undefined, { staleTime: 5 * 60_000 });
@@ -68,11 +70,13 @@ export default function AdminDashboard() {
   const emailDelivery = trpc.admin.emailDelivery.useQuery({ limit: 5 }, { refetchInterval: 45_000, refetchIntervalInBackground: false, staleTime: 8_000, retry: false });
   const unreadNotificationCount = (notificationQuery.data ?? []).filter((item) => !item.readAt).length;
   const requestRows = useMemo(() => allRequests.data ?? [], [allRequests.data]);
+  const overdueRequests = useMemo(() => requestRows.filter((item) => !["completed", "cancelled"].includes(item.status) && Date.now() - new Date(item.createdAt).getTime() >= 5 * 24 * 60 * 60 * 1000), [requestRows]);
   const metrics = useMemo(() => [
     { label: "Em aberto", value: String(requestRows.filter((item) => ["received", "reviewing", "forwarded"].includes(item.status)).length), tone: "warning" as const, icon: "tray.fill" as const, kind: "open" as DetailKind },
     { label: "Em andamento", value: String(requestRows.filter((item) => item.status === "in_progress").length), tone: "primary" as const, icon: "arrow.triangle.2.circlepath" as const, kind: "in_progress" as DetailKind },
     { label: "Concluídas", value: String(requestRows.filter((item) => item.status === "completed").length), tone: "success" as const, icon: "checkmark.circle.fill" as const, kind: "completed" as DetailKind },
-  ], [requestRows]);
+    { label: "Aguardando há 5+ dias", value: String(overdueRequests.length), tone: "error" as const, icon: "exclamationmark.triangle.fill" as const, kind: "open" as DetailKind },
+  ], [overdueRequests.length, requestRows]);
   const filteredRows = useMemo(() => {
     const cutoff = periodFilter === "all" ? null : periodFilter === "today" ? new Date(new Date().setHours(0, 0, 0, 0)).getTime() : Date.now() - Number(periodFilter) * 24 * 60 * 60 * 1000;
     return requestRows.filter((item) => {
@@ -84,6 +88,8 @@ export default function AdminDashboard() {
       return matchesStatus && matchesPeriod && matchesSearch;
     });
   }, [periodFilter, requestRows, searchQuery, statusFilter]);
+  const visibleRows = filteredRows.slice(0, queueLimit);
+  useEffect(() => { setQueueLimit(QUEUE_PAGE_SIZE); }, [bairro, periodFilter, searchQuery, statusFilter]);
   const residentMatches = useMemo(() => {
     const normalizedSearch = searchQuery.trim().toLocaleLowerCase("pt-BR");
     if (normalizedSearch.length < 2) return [];
@@ -173,6 +179,9 @@ export default function AdminDashboard() {
         <View style={styles.header}>
 
           <View style={styles.headerActions}>
+            <Pressable accessibilityRole="button" accessibilityLabel="Alterar senha administrativa" onPress={() => router.push("/(tabs)/profile" as never)} style={({ pressed }) => [styles.securityButton, { backgroundColor: colors.surface, borderColor: colors.border }, pressed && styles.pressed]}>
+              <Text style={[styles.securityButtonText, { color: colors.primary }]}>Senha</Text>
+            </Pressable>
             <Pressable accessibilityRole="button" accessibilityLabel={`Abrir notificações${unreadNotificationCount ? `, ${unreadNotificationCount} não lidas` : ""}`} onPress={() => router.push("/notifications")} style={({ pressed }) => [styles.notificationButton, { backgroundColor: colors.surface, borderColor: colors.border }, pressed && styles.pressed]}>
               <IconSymbol name="bell.fill" size={21} color={colors.primary} />
               {unreadNotificationCount > 0 && <View style={[styles.notificationBadge, { backgroundColor: colors.error }]}><Text style={styles.notificationBadgeText}>{unreadNotificationCount > 99 ? "99+" : unreadNotificationCount}</Text></View>}
@@ -248,13 +257,14 @@ export default function AdminDashboard() {
         </View>
         <View style={styles.metrics}>
           {metrics.map((metric) => (
-            <Pressable key={metric.label} accessibilityRole="button" accessibilityLabel={`${metric.label}: ${metric.value}. Toque para ver as solicitações`} onPress={() => setDetail(metric.kind)} style={({ pressed }) => [styles.metric, { backgroundColor: toneColor(metric.tone) + "0D" }, pressed && styles.pressed]}>
-              <View style={[styles.metricIcon, { backgroundColor: toneColor(metric.tone) + "18" }]}><IconSymbol name={metric.icon} size={19} color={toneColor(metric.tone)} /></View>
-              <Text style={[styles.metricValue, { color: colors.foreground }]}>{metric.value}</Text>
-              <Text style={styles.metricLabel}>{metric.label} ›</Text>
+              <Pressable key={metric.label} accessibilityRole="button" accessibilityLabel={`${metric.label}: ${metric.value}. Toque para ver as solicitações`} onPress={() => setDetail(metric.kind)} style={({ pressed }) => [styles.metric, { backgroundColor: toneColor(metric.tone) }, pressed && styles.pressed]}>
+              <View style={[styles.metricIcon, { backgroundColor: "#FFFFFF30" }]}><IconSymbol name={metric.icon} size={19} color="#FFFFFF" /></View>
+              <Text style={[styles.metricValue, { color: "#FFFFFF" }]}>{metric.value}</Text>
+              <Text style={[styles.metricLabel, { color: "#FFFFFF" }]}>{metric.label} ›</Text>
             </Pressable>
           ))}
         </View>
+        {overdueRequests.length > 0 && <Pressable accessibilityRole="button" accessibilityLabel={`${overdueRequests.length} solicitações aguardam resposta há mais de cinco dias`} onPress={() => setDetail("open")} style={({ pressed }) => [styles.overdueAlert, { backgroundColor: colors.error + "12", borderColor: colors.error }, pressed && styles.pressed]}><IconSymbol name="exclamationmark.triangle.fill" size={21} color={colors.error} /><View style={styles.overdueCopy}><Text style={[styles.overdueTitle, { color: colors.error }]}>Atenção: há solicitações sem resposta</Text><Text style={[styles.overdueText, { color: colors.foreground }]}>{overdueRequests.length} solicitação(ões) estão abertas há mais de 5 dias. Toque para revisar.</Text></View><Text style={[styles.overdueArrow, { color: colors.error }]}>›</Text></Pressable>}
 
         <View style={[styles.chartCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <Text style={[styles.chartTitle, { color: colors.foreground }]}>Distribuição das solicitações</Text>
@@ -278,7 +288,7 @@ export default function AdminDashboard() {
 
         <View style={styles.sectionHeader}>
           <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Fila de atenção</Text>
-          <Text style={[styles.filterSummary, { color: colors.muted }]}>{filteredRows.length} encontradas</Text>
+          <Text style={[styles.filterSummary, { color: colors.muted }]}>{filteredRows.length} encontradas · mostrando {visibleRows.length}</Text>
         </View>
         <View style={[styles.searchBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <TextInput
@@ -296,52 +306,18 @@ export default function AdminDashboard() {
         <SelectionField value={statusFilter} options={statusFilters} onChange={setStatusFilter} title="Filtrar por status" placeholder="Todos" accessibilityLabel="Filtrar solicitações por status" />
         <Text style={[styles.filterLabel, { color: colors.muted }]}>Pesquisar por data de criação</Text>
         <SelectionField value={periodFilter} options={periodFilters} onChange={setPeriodFilter} title="Filtrar por período" placeholder="Todo período" accessibilityLabel="Filtrar solicitações por período" />
-        {allRequests.isLoading ? <QueryState colors={colors} loading compact loadingText="Carregando solicitações…" /> : allRequests.error ? <QueryState colors={colors} loading={false} error={allRequests.error} compact errorTitle="Não foi possível carregar a fila" onRetry={() => void allRequests.refetch()} /> : <>{filteredRows.slice(0, 6).map((item) => { const color = statusColor(item.status); return <View key={item.id} style={[styles.queueItem, { backgroundColor: colors.surface, borderColor: colors.border }]}><View style={[styles.queueIndicator, { backgroundColor: color }]} /><View style={styles.queueCopy}><Text style={[styles.queueTitle, { color: colors.foreground }]}>{categoryLabels[item.category] ?? item.category}</Text><Text style={[styles.queuePlace, { color: colors.muted }]}>{item.fullAddress}</Text><Text style={[styles.queueRequester, { color: colors.foreground }]}>👤 {item.requesterName?.trim() || item.requesterUsername?.trim() || "Morador não identificado"}</Text><View style={[styles.statusBadge, { backgroundColor: color + "18" }]}><Text style={styles.statusBadgeText}>{statusLabels[item.status] ?? item.status}</Text></View></View><Text style={[styles.queueTime, { color: colors.muted }]}>{item.createdAt.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}</Text><Pressable onPress={() => confirmDeleteRequest(item.id)} style={({ pressed }) => [styles.visibleDelete, { borderColor: colors.error }, pressed && styles.pressed]}><Text style={[styles.visibleDeleteText, { color: colors.error }]}>Excluir</Text></Pressable><Pressable onPress={() => openRequestActions(item)} onLongPress={() => openRequestStatusActions(item)} style={({ pressed }) => [styles.moreButton, { backgroundColor: colors.primary + "12" }, pressed && styles.pressed]}><Text style={[styles.moreText, { color: colors.primary }]}>Abrir</Text></Pressable></View>; })}{filteredRows.length === 0 && <Text style={[styles.queuePlace, { color: colors.muted }]}>{requestRows.length === 0 ? "Nenhuma solicitação cadastrada." : "Nenhuma solicitação corresponde aos filtros."}</Text>}</>}
-
-        <Pressable onPress={() => router.push("/admin/water-shortage")} style={({ pressed }) => [styles.secondaryAction, { borderColor: colors.warning, backgroundColor: colors.warning + "12" }, pressed && styles.pressed]}>
-          <IconSymbol name="drop.fill" size={20} color={colors.warning} />
-          <Text style={[styles.secondaryActionText, { color: colors.warning }]}>Acompanhar atendimentos de água</Text>
-        </Pressable>
-        <Pressable onPress={exportWaterShortagePdf} style={({ pressed }) => [styles.primaryAction, { backgroundColor: colors.primary }, pressed && styles.pressed]}>
-          <IconSymbol name="megaphone.fill" size={20} color="#FFFFFF" />
-          <Text style={styles.primaryActionText}>Gerar relatório de falta de água</Text>
-        </Pressable>
-        <Pressable onPress={() => router.push("/admin/announcements")} style={({ pressed }) => [styles.primaryAction, { backgroundColor: colors.primary }, pressed && styles.pressed]}>
-          <IconSymbol name="megaphone.fill" size={20} color="#FFFFFF" />
-          <Text style={styles.primaryActionText}>Criar comunicado</Text>
-        </Pressable>
-        <Pressable onPress={() => router.push("/admin/residents")} style={({ pressed }) => [styles.secondaryAction, { borderColor: colors.primary, backgroundColor: colors.primary + "0D" }, pressed && styles.pressed]}>
-          <IconSymbol name="person.3.fill" size={20} color={colors.primary} />
-          <Text style={[styles.secondaryActionText, { color: colors.primary }]}>Abrir painel de usuários</Text>
-        </Pressable>
-        <Pressable onPress={() => router.push("/admin/suggestions")} style={({ pressed }) => [styles.secondaryAction, { borderColor: colors.primary, backgroundColor: colors.primary + "0D" }, pressed && styles.pressed]}>
-          <IconSymbol name="lightbulb.fill" size={20} color={colors.primary} />
-          <Text style={[styles.secondaryActionText, { color: colors.primary }]}>Ver sugestões recebidas</Text>
-        </Pressable>
-        <Pressable onPress={() => router.push("/admin/audit" as never)} style={({ pressed }) => [styles.secondaryAction, { borderColor: colors.primary, backgroundColor: colors.primary + "0D" }, pressed && styles.pressed]}>
-          <IconSymbol name="clock.fill" size={20} color={colors.primary} />
-          <Text style={[styles.secondaryActionText, { color: colors.primary }]}>Ver histórico administrativo</Text>
-        </Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel="Abrir relatórios administrativos" onPress={() => router.push("/admin/reports" as never)} style={({ pressed }) => [styles.secondaryAction, { borderColor: colors.primary, backgroundColor: colors.primary + "0D" }, pressed && styles.pressed]}>
-          <IconSymbol name="chart.bar.fill" size={20} color={colors.primary} />
-          <Text style={[styles.secondaryActionText, { color: colors.primary }]}>Relatórios CSV e PDF</Text>
-        </Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel="Gerenciar sessões ativas" onPress={() => router.push("/admin/security" as never)} style={({ pressed }) => [styles.secondaryAction, { borderColor: colors.warning, backgroundColor: colors.warning + "12" }, pressed && styles.pressed]}>
-          <IconSymbol name="lock.fill" size={20} color={colors.warning} />
-          <Text style={[styles.secondaryActionText, { color: colors.warning }]}>Sessões e segurança</Text>
-        </Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel="Abrir backup e restauração" onPress={() => router.push("/admin/backup" as never)} style={({ pressed }) => [styles.secondaryAction, { borderColor: colors.success, backgroundColor: colors.success + "12" }, pressed && styles.pressed]}>
-          <IconSymbol name="externaldrive.fill" size={20} color={colors.success} />
-          <Text style={[styles.secondaryActionText, { color: colors.success }]}>Backup e restauração</Text>
-        </Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel="Abrir acessibilidade" onPress={() => router.push("/accessibility" as never)} style={({ pressed }) => [styles.secondaryAction, { borderColor: colors.primary, backgroundColor: colors.primary + "0D" }, pressed && styles.pressed]}>
-          <IconSymbol name="textformat.size" size={20} color={colors.primary} />
-          <Text style={[styles.secondaryActionText, { color: colors.primary }]}>Acessibilidade e tamanho do texto</Text>
-        </Pressable>
-        <Pressable onPress={() => router.push("/admin/social-links")} style={({ pressed }) => [styles.secondaryAction, { borderColor: colors.primary, backgroundColor: colors.primary + "0D" }, pressed && styles.pressed]}>
-          <IconSymbol name="link" size={20} color={colors.primary} />
-          <Text style={[styles.secondaryActionText, { color: colors.primary }]}>Configurar Instagram, Facebook e WhatsApp</Text>
-        </Pressable>
+        {allRequests.isLoading ? <QueryState colors={colors} loading compact loadingText="Carregando solicitações…" /> : allRequests.error ? <QueryState colors={colors} loading={false} error={allRequests.error} compact errorTitle="Não foi possível carregar a fila" onRetry={() => void allRequests.refetch()} /> : <>{visibleRows.map((item) => { const color = statusColor(item.status); return <View key={item.id} style={[styles.queueItem, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <View style={[styles.queueAccent, { backgroundColor: color }]} />
+          <View style={styles.queueContent}>
+            <View style={styles.queueHeaderRow}><Text style={[styles.queueTitle, { color: colors.foreground }]} numberOfLines={2}>{categoryLabels[item.category] ?? item.category}</Text><View style={[styles.statusBadge, { backgroundColor: color + "18" }]}><Text style={[styles.statusBadgeText, { color }]}>{statusLabels[item.status] ?? item.status}</Text></View></View>
+            <Text style={[styles.queuePlace, { color: colors.muted }]}>{item.fullAddress}</Text>
+            <Text style={[styles.queueRequester, { color: colors.foreground }]} numberOfLines={2}>👤 {item.requesterName?.trim() || item.requesterUsername?.trim() || "Morador não identificado"}</Text>
+            <View style={styles.queueFooter}><Text style={[styles.queueTime, { color: colors.muted }]}>{item.createdAt.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}</Text><View style={styles.queueActions}><Pressable onPress={() => confirmDeleteRequest(item.id)} style={({ pressed }) => [styles.visibleDelete, { borderColor: colors.error }, pressed && styles.pressed]}><Text style={[styles.visibleDeleteText, { color: colors.error }]}>Excluir</Text></Pressable><Pressable onPress={() => openRequestActions(item)} onLongPress={() => openRequestStatusActions(item)} style={({ pressed }) => [styles.moreButton, { backgroundColor: colors.primary + "16" }, pressed && styles.pressed]}><Text style={[styles.moreText, { color: colors.primary }]}>Abrir</Text></Pressable></View></View>
+          </View>
+        </View>; })}{filteredRows.length === 0 && <Text style={[styles.queuePlace, { color: colors.muted }]}>{requestRows.length === 0 ? "Nenhuma solicitação cadastrada." : "Nenhuma solicitação corresponde aos filtros."}</Text>}{filteredRows.length > visibleRows.length && <Pressable accessibilityRole="button" onPress={() => setQueueLimit((limit) => limit + QUEUE_PAGE_SIZE)} style={({ pressed }) => [styles.loadMoreQueue, { borderColor: colors.primary, backgroundColor: colors.surface }, pressed && styles.pressed]}><Text style={{ color: colors.primary, fontWeight: "900" }}>Carregar mais ({filteredRows.length - visibleRows.length})</Text></Pressable>}</>}
+        <View style={styles.actionCardsSection}><Text style={[styles.sectionTitle, { color: colors.foreground }]}>Ações rápidas</Text><View style={styles.actionCards}>{[
+          ["drop.fill", "Acompanhar atendimentos de água", () => router.push("/admin/water-shortage"), colors.primary], ["megaphone.fill", "Gerar relatório de falta de água", exportWaterShortagePdf, colors.warning], ["megaphone.fill", "Criar comunicado", () => router.push("/admin/announcements"), colors.primary], ["person.3.fill", "Abrir painel de usuários", () => router.push("/admin/residents"), colors.success], ["lightbulb.fill", "Ver sugestões recebidas", () => router.push("/admin/suggestions"), colors.warning], ["clock.fill", "Ver histórico administrativo", () => router.push("/admin/audit" as never), colors.primary], ["chart.bar.fill", "Relatórios CSV e PDF", () => router.push("/admin/reports" as never), colors.success], ["lock.fill", "Sessões e segurança", () => router.push("/admin/security" as never), colors.error], ["externaldrive.fill", "Backup e restauração", () => router.push("/admin/backup" as never), colors.success], ["textformat.size", "Acessibilidade e tamanho do texto", () => router.push("/accessibility" as never), colors.primary], ["link", "Configurar Instagram, Facebook e WhatsApp", () => router.push("/admin/social-links"), colors.warning],
+        ].map(([icon, label, onPress, color]) => <Pressable key={String(label)} accessibilityRole="button" onPress={onPress as () => void} style={({ pressed }) => [styles.actionCard, { backgroundColor: `${String(color)}18`, borderColor: `${String(color)}45` }, pressed && styles.pressed]}><View style={[styles.actionCardIcon, { backgroundColor: `${String(color)}20` }]}><IconSymbol name={icon as never} size={20} color={String(color)} /></View><Text style={styles.actionCardText}>{String(label)}</Text></Pressable>)}</View></View>
       </ScrollView>
 
       <AdminDetailSheet
@@ -368,7 +344,7 @@ export default function AdminDashboard() {
         {detail === "unread_notifications" && (() => {
           const rows = (notificationQuery.data ?? []).filter((item) => !item.readAt);
           if (!rows.length) return <DetailEmpty text="Nenhum aviso não lido." />;
-          return rows.map((item) => <DetailRow key={item.id} title={item.title} lines={[item.body, formatDateTime(item.createdAt)]} onPress={() => { setDetail(null); router.push("/notifications"); }} />);
+          return rows.map((item) => <DetailRow key={item.id} title={item.title} lines={[item.body, formatDateTime(item.createdAt)]} onPress={() => { setDetail(null); router.push({ pathname: "/notifications", params: { notificationId: String(item.id) } }); }} />);
         })()}
         {detail === "email_failures" && (
           <>
@@ -396,7 +372,9 @@ const styles = StyleSheet.create({
   content: { paddingBottom: 38, gap: 24 },
   header: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 10 },
   headerCopy: { flex: 1, minWidth: 0 },
-  headerActions: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 8, flexShrink: 0, paddingTop: 1, width: 116 },
+  headerActions: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 8, flexShrink: 0, paddingTop: 1, width: 184 },
+  securityButton: { minWidth: 54, height: 42, borderRadius: 14, borderWidth: 1.5, alignItems: "center", justifyContent: "center", paddingHorizontal: 10 },
+  securityButtonText: { fontSize: 12, fontWeight: "900" },
   notificationButton: { width: 42, height: 42, borderRadius: 14, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
   notificationBadge: { position: "absolute", top: -5, right: -3, minWidth: 21, height: 21, paddingHorizontal: 5, borderRadius: 11, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "#FFFFFF" },
   notificationBadgeText: { color: "#FFFFFF", fontSize: 10, lineHeight: 12, fontWeight: "900" },
@@ -459,13 +437,17 @@ const styles = StyleSheet.create({
   filterRow: { flexDirection: "row", gap: 7, borderBottomWidth: 1, paddingBottom: 3 },
   filter: { borderRadius: 12, borderWidth: 1.5, paddingHorizontal: 12, paddingVertical: 9 },
   filterText: { fontSize: 12, fontWeight: "900", color: "#000000" },
-  queueItem: { minHeight: 88, borderRadius: 20, borderWidth: 1.5, flexDirection: "row", alignItems: "center", padding: 14, shadowColor: "#0B3B8C", shadowOpacity: 0.08, shadowRadius: 14, shadowOffset: { width: 0, height: 5 }, elevation: 2 },
-  queueIndicator: { width: 9, height: 9, borderRadius: 5, marginRight: 12 },
-  queueCopy: { flex: 1 },
-  queueTitle: { fontSize: 14, fontWeight: "900", color: "#000000" },
-  queuePlace: { fontSize: 12, marginTop: 4 },
-  queueRequester: { fontSize: 12, fontWeight: "800", marginTop: 5 },
-  queueTime: { fontSize: 11, marginRight: 8 },
+  queueItem: { minHeight: 150, borderRadius: 20, borderWidth: 1, flexDirection: "row", alignItems: "stretch", padding: 0, overflow: "hidden", shadowColor: "#0B3B8C", shadowOpacity: 0.08, shadowRadius: 14, shadowOffset: { width: 0, height: 5 }, elevation: 2 },
+  loadMoreQueue: { minHeight: 48, borderWidth: 1.5, borderRadius: 16, alignItems: "center", justifyContent: "center", marginTop: 2 },
+  queueAccent: { width: 7 },
+  queueContent: { flex: 1, minWidth: 0, padding: 14, gap: 6 },
+  queueHeaderRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 8 },
+  queueTitle: { flex: 1, fontSize: 16, lineHeight: 20, fontWeight: "900" },
+  queuePlace: { fontSize: 12, lineHeight: 18 },
+  queueRequester: { fontSize: 13, lineHeight: 18, fontWeight: "800" },
+  queueFooter: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 3 },
+  queueActions: { flexDirection: "row", alignItems: "center", gap: 7 },
+  queueTime: { flex: 1, fontSize: 10 },
   statusBadge: { alignSelf: "flex-start", borderRadius: 999, paddingHorizontal: 8, paddingVertical: 4, marginTop: 8 },
   statusBadgeText: { fontSize: 10, fontWeight: "900", color: "#000000" },
   visibleDelete: { borderWidth: 1, borderRadius: 10, minHeight: 34, paddingHorizontal: 9, alignItems: "center", justifyContent: "center", marginLeft: 6 },
@@ -482,6 +464,16 @@ const styles = StyleSheet.create({
   pushTestSubtitle: { fontSize: 12, lineHeight: 18 },
   pushTestButton: { minHeight: 48, borderRadius: 14, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
   pushTestButtonText: { color: "#FFFFFF", fontSize: 14, fontWeight: "900" },
+  overdueAlert: { minHeight: 72, borderWidth: 1.5, borderRadius: 18, padding: 13, flexDirection: "row", alignItems: "center", gap: 10 },
+  overdueCopy: { flex: 1, gap: 3 },
+  overdueTitle: { fontSize: 13, fontWeight: "900" },
+  overdueText: { fontSize: 11, lineHeight: 16 },
+  overdueArrow: { fontSize: 27, fontWeight: "700" },
+  actionCardsSection: { gap: 10, paddingTop: 6 },
+  actionCards: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  actionCard: { width: "48.5%", minHeight: 76, borderRadius: 14, borderWidth: 1.5, padding: 10, justifyContent: "center", gap: 7, shadowColor: "#0B3B8C", shadowOpacity: 0.07, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 2 },
+  actionCardIcon: { width: 32, height: 32, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  actionCardText: { color: "#111827", fontSize: 11, lineHeight: 15, fontWeight: "900" },
   disabled: { opacity: 0.5 },
   pressed: { opacity: 0.75, transform: [{ scale: 0.985 }] },
 });

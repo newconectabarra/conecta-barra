@@ -18,6 +18,7 @@ import { SelectionField } from "@/components/selection-field";
 const categories = Object.entries(categoryLabels) as [string, string][];
 const STEPS = ["received", "reviewing", "forwarded", "in_progress", "completed"] as const;
 const FILTERS = [["all", "Todas"], ["open", "Em aberto"], ["completed", "Concluídas"]] as const;
+const PAGE_SIZE = 8;
 
 type Request = { id: number; category: string; fullAddress: string; neighborhood?: string | null; referencePoint: string | null; description: string; status: string; adminMessage?: string | null; createdAt: Date; updatedAt: Date };
 
@@ -32,6 +33,8 @@ export default function RequestsScreen() {
   const { allowed, loading, error: accessError, retry: retryAccess } = useResidentAccess();
   const requests = trpc.requests.mine.useQuery(undefined, { refetchInterval: 30_000, staleTime: 1_000, enabled: allowed });
   const [filter, setFilter] = useState<(typeof FILTERS)[number][0]>("all");
+  const [search, setSearch] = useState("");
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [category, setCategory] = useState("other");
   const [address, setAddress] = useState("");
@@ -43,7 +46,15 @@ export default function RequestsScreen() {
   });
 
   const all = (requests.data ?? []) as Request[];
-  const data = useMemo(() => all.filter((r) => filter === "all" || (filter === "completed" ? r.status === "completed" : !["completed", "cancelled"].includes(r.status))), [all, filter]);
+  const data = useMemo(() => {
+    const query = search.trim().toLocaleLowerCase("pt-BR");
+    return all.filter((r) => {
+      const matchesFilter = filter === "all" || (filter === "completed" ? r.status === "completed" : !["completed", "cancelled"].includes(r.status));
+      const searchable = [requestProtocol(r.id, r.createdAt), categoryLabels[r.category], r.description, r.fullAddress, r.neighborhood, statusLabels[r.status]].filter(Boolean).join(" ").toLocaleLowerCase("pt-BR");
+      return matchesFilter && (!query || searchable.includes(query));
+    });
+  }, [all, filter, search]);
+  const visibleData = data.slice(0, visibleCount);
   const openCount = all.filter((r) => !["completed", "cancelled"].includes(r.status)).length;
 
   useEffect(() => {
@@ -53,6 +64,8 @@ export default function RequestsScreen() {
     const timer = setTimeout(() => listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.18 }), 80);
     return () => clearTimeout(timer);
   }, [focusedId, data]);
+
+  useEffect(() => { setVisibleCount(PAGE_SIZE); }, [filter, search]);
 
   if (loading) return <ResidentAccessLoading />;
   if (accessError) return <ScreenContainer className="p-5"><QueryState colors={colors} loading={false} error={accessError} errorTitle="Não foi possível verificar seu acesso" onRetry={() => void retryAccess()} /></ScreenContainer>;
@@ -71,7 +84,7 @@ export default function RequestsScreen() {
       <StatusBar style="light" />
       <FlatList
         ref={listRef}
-        data={data}
+        data={visibleData}
         keyExtractor={(item) => String(item.id)}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 28 }}
@@ -85,6 +98,8 @@ export default function RequestsScreen() {
             </GradientHeader>
             <View style={styles.filters}>
               <SelectionField value={filter} options={FILTERS.map(([value, label]) => ({ value, label }))} onChange={setFilter} title="Filtrar minhas solicitações" placeholder="Todas" accessibilityLabel="Filtrar solicitações por status" />
+              <TextInput value={search} onChangeText={setSearch} placeholder="Buscar por protocolo, assunto, bairro ou endereço" placeholderTextColor={colors.muted} accessibilityLabel="Buscar minhas solicitações" returnKeyType="search" style={[styles.searchInput, { backgroundColor: colors.surface, borderColor: colors.border, color: colors.foreground }]} />
+              <Text style={[styles.resultSummary, { color: colors.muted }]}>{data.length === all.length ? `${data.length} solicitação(ões)` : `${data.length} encontradas de ${all.length}`} · mostrando {visibleData.length}</Text>
               <Pressable accessibilityRole="button" onPress={() => router.push("/request")} style={[styles.newBtn, { backgroundColor: colors.primary }]}><Text style={styles.newText}>+ Nova</Text></Pressable>
             </View>
           </View>
@@ -147,6 +162,7 @@ export default function RequestsScreen() {
               : <QueryState colors={colors} loading={false} empty compact emptyTitle="Nenhuma solicitação" emptyText={filter === "all" ? "Toque em “+ Nova” para pedir um reparo no seu bairro." : "Nada nesta categoria."} />}
           </View>
         }
+        ListFooterComponent={data.length > visibleData.length ? <Pressable accessibilityRole="button" onPress={() => setVisibleCount((count) => count + PAGE_SIZE)} style={[styles.loadMore, { borderColor: colors.primary, backgroundColor: colors.surface }]}><Text style={{ color: colors.primary, fontWeight: "900" }}>Carregar mais ({data.length - visibleData.length})</Text></Pressable> : null}
       />
     </View>
   );
@@ -158,6 +174,8 @@ const styles = StyleSheet.create({
   title: { color: "#FFFFFF", fontSize: 27, fontWeight: "900", letterSpacing: -0.4 },
   sub: { color: "#DDF0FF", fontSize: 14, marginTop: 4 },
   filters: { gap: 8, paddingHorizontal: 18, paddingVertical: 14, alignItems: "stretch" },
+  searchInput: { borderWidth: 1, borderRadius: 16, minHeight: 48, paddingHorizontal: 14, fontSize: 14 },
+  resultSummary: { fontSize: 12, fontWeight: "700" },
   newBtn: { alignSelf: "flex-end", borderRadius: 999, paddingHorizontal: 16, paddingVertical: 9 },
   newText: { color: "#FFFFFF", fontWeight: "900", fontSize: 13 },
   card: { marginHorizontal: 18, marginBottom: 12, borderWidth: 1, borderRadius: 24, padding: 16, gap: 8, shadowColor: "#0B3B8C", shadowOpacity: 0.08, shadowRadius: 14, shadowOffset: { width: 0, height: 5 }, elevation: 2 },
@@ -182,4 +200,5 @@ const styles = StyleSheet.create({
   actions: { flexDirection: "row", gap: 10, marginTop: 6 },
   cancel: { flex: 1, borderWidth: 1.5, borderRadius: 14, alignItems: "center", justifyContent: "center", minHeight: 46 },
   save: { flex: 2, borderRadius: 14, alignItems: "center", justifyContent: "center", minHeight: 46 },
+  loadMore: { marginHorizontal: 18, marginTop: 2, marginBottom: 16, minHeight: 48, borderWidth: 1.5, borderRadius: 16, alignItems: "center", justifyContent: "center" },
 });

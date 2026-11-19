@@ -99,10 +99,18 @@ async function recordAdminAction(adminId: number, input: AdminAuditInput) {
   });
 }
 
+/** Conta oficial vê toda a cidade; contas admin_bairro_* só podem operar o bairro gravado na ficha. */
+async function getAdminNeighborhoodScope(user: { id: number; openId: string }) {
+  if (user.openId === db.ADMIN_OPEN_ID) return null;
+  const neighborhood = await db.getUserNeighborhood(user.id);
+  if (!neighborhood) throw new TRPCError({ code: "FORBIDDEN", message: "Esta conta administrativa ainda não está vinculada a um bairro." });
+  return neighborhood;
+}
+
 export const appRouter = router({
   system: systemRouter,
   admin: router({
-    dashboard: adminProcedure.input(z.object({ neighborhood: z.string().max(120).optional() }).optional()).query(({ ctx, input }) => db.getAdminDashboardSummary(ctx.user.id, input?.neighborhood)),
+    dashboard: adminProcedure.input(z.object({ neighborhood: z.string().max(120).optional() }).optional()).query(async ({ ctx, input }) => db.getAdminDashboardSummary(ctx.user.id, (await getAdminNeighborhoodScope(ctx.user)) ?? input?.neighborhood)),
     /** Lista contas com papel de administrador (deve haver só uma). */
     adminAccounts: adminProcedure.query(async ({ ctx }) => ({ currentUserId: ctx.user.id, currentIsOfficial: ctx.user.openId === db.ADMIN_OPEN_ID, accounts: await db.listAdminAccounts() })),
     /** Remove todas as contas administrativas extras, mantendo a que está logada (que precisa ser a oficial). */
@@ -305,7 +313,7 @@ export const appRouter = router({
     me: publicProcedure.query(async (opts) => {
       const user = opts.ctx.user;
       if (!user) return null;
-      const credentials = user.role === "user" ? await db.getResidentCredentialByUserId(user.id) : undefined;
+      const credentials = user.role === "user" || user.role === "admin" ? await db.getResidentCredentialByUserId(user.id) : undefined;
       // Antes, `{ ...user, ...credentials }` deixava o `id` da ficha sobrescrever o id do usuário e ainda devolvia o hash da senha ao app.
       return {
         ...publicUser(user),
@@ -443,8 +451,9 @@ export const appRouter = router({
       void notifyNewRequest({ requestId, residentName: ctx.user.name ?? undefined, category: input.category, neighborhood });
       return requestId;
     }),
-    all: adminProcedure.input(z.object({ status: statusSchema.optional(), category: categorySchema.optional(), neighborhood: z.string().max(120).optional() }).optional()).query(({ input }) => db.listAllRequests(input)),
+    all: adminProcedure.input(z.object({ status: statusSchema.optional(), category: categorySchema.optional(), neighborhood: z.string().max(120).optional() }).optional()).query(async ({ ctx, input }) => db.listAllRequests({ ...input, neighborhood: (await getAdminNeighborhoodScope(ctx.user)) ?? input?.neighborhood })),
     updateStatus: adminProcedure.input(z.object({ id: z.number().int().positive(), status: statusSchema, message: z.string().max(2000).optional() })).mutation(async ({ ctx, input }) => {
+      await db.assertRequestNeighborhood(input.id, await getAdminNeighborhoodScope(ctx.user));
       const userId = await db.updateRequestStatus({ ...input, adminId: ctx.user.id });
       await notifyRequestStatusChanged({ userId, requestId: input.id, status: input.status, message: input.message });
       emit({ scopes: ["requests", "dashboard"], admins: true });
@@ -452,6 +461,7 @@ export const appRouter = router({
       return { success: true } as const;
     }),
     delete: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      await db.assertRequestNeighborhood(input.id, await getAdminNeighborhoodScope(ctx.user));
       const targetUserId = await db.getRequestOwnerId(input.id);
       await db.deleteRequest(input.id);
       emit({ scopes: ["requests", "dashboard"], admins: true, userIds: targetUserId ? [targetUserId] : [] });
@@ -459,7 +469,9 @@ export const appRouter = router({
       return { success: true } as const;
     }),
     deleteMany: adminProcedure.input(z.object({ ids: z.array(z.number().int().positive()).min(1).max(100) })).mutation(async ({ ctx, input }) => {
+      const scope = await getAdminNeighborhoodScope(ctx.user);
       for (const id of input.ids) {
+        await db.assertRequestNeighborhood(id, scope);
         const targetUserId = await db.getRequestOwnerId(id);
         await db.deleteRequest(id);
         emit({ scopes: ["requests", "dashboard"], admins: true, userIds: targetUserId ? [targetUserId] : [] });
@@ -543,8 +555,8 @@ export const appRouter = router({
     update: adminProcedure.input(z.object({ instagram: z.string().url().or(z.literal("")), facebook: z.string().url().or(z.literal("")), whatsapp: z.string().url().or(z.literal("")), youtube: z.string().url().or(z.literal("")).optional(), website: z.string().url().or(z.literal("")).optional() })).mutation(async ({ input }) => { const result = await db.updateSocialLinks({ instagram: input.instagram || null, facebook: input.facebook || null, whatsapp: input.whatsapp || null, youtube: input.youtube || null, website: input.website || null }); emit({ scopes: ["social"], everyone: true }); return result; }),
   }),
   reports: router({
-    waterShortage: adminProcedure.input(z.object({ neighborhood: z.string().max(120).optional() }).optional()).query(({ input }) => db.listWaterShortageRequests(input?.neighborhood)),
-    markWaterShortageAttended: adminProcedure.input(z.object({ id: z.number().int().positive(), attended: z.boolean() })).mutation(async ({ input }) => { const result = await db.markWaterShortageAttended(input.id, input.attended); void notifyRequestStatusChanged(result); return result; }),
+    waterShortage: adminProcedure.input(z.object({ neighborhood: z.string().max(120).optional() }).optional()).query(async ({ ctx, input }) => db.listWaterShortageRequests((await getAdminNeighborhoodScope(ctx.user)) ?? input?.neighborhood)),
+    markWaterShortageAttended: adminProcedure.input(z.object({ id: z.number().int().positive(), attended: z.boolean() })).mutation(async ({ ctx, input }) => { await db.assertRequestNeighborhood(input.id, await getAdminNeighborhoodScope(ctx.user)); const result = await db.markWaterShortageAttended(input.id, input.attended); void notifyRequestStatusChanged(result); return result; }),
   }),
   address: router({
     /** Busca automática de endereço por CEP (público: usado também no cadastro). */

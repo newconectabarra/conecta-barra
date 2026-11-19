@@ -84,6 +84,7 @@ export async function getDb() {
 
 /** openId da única conta administrativa (login por ADMIN_USERNAME/ADMIN_PASSWORD). */
 export const ADMIN_OPEN_ID = "admin_gestao";
+export const isNeighborhoodAdminOpenId = (openId: string) => openId.startsWith("admin_bairro_");
 
 export async function upsertUser(user: InsertUser): Promise<void> {
   if (!user.openId) throw new Error("User openId is required for upsert");
@@ -104,9 +105,10 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     updateSet.residentStatus = user.residentStatus;
   }
   if (user.role !== undefined) {
-    // Há UMA única conta administrativa (openId fixo). Qualquer outro openId nunca recebe o papel "admin".
-    values.role = user.openId === ADMIN_OPEN_ID ? (user.role ?? "admin") : "user";
-    if (user.openId === ADMIN_OPEN_ID) updateSet.role = values.role;
+    // A conta oficial e as contas admin_bairro_* são administrativas; demais openIds são moradores.
+    const canBeAdmin = user.openId === ADMIN_OPEN_ID || isNeighborhoodAdminOpenId(user.openId);
+    values.role = canBeAdmin ? (user.role ?? "admin") : "user";
+    if (canBeAdmin) updateSet.role = values.role;
   }
   updateSet.encryptedData = values.encryptedData;
   await db.insert(users).values(values).onDuplicateKeyUpdate({ set: updateSet });
@@ -221,6 +223,15 @@ export async function getRequestOwnerId(id: number) {
   if (!database) return undefined;
   const result = await database.select({ userId: requests.userId }).from(requests).where(eq(requests.id, id)).limit(1);
   return result[0]?.userId;
+}
+
+export async function assertRequestNeighborhood(id: number, neighborhood: string | null) {
+  if (!neighborhood) return;
+  const database = await getDb();
+  if (!database) throw new Error("Database not available");
+  const result = await database.select({ neighborhood: requests.neighborhood }).from(requests).where(eq(requests.id, id)).limit(1);
+  if (!result[0]) throw new Error("Solicitação não encontrada.");
+  if (normalizeName(result[0].neighborhood) !== normalizeName(neighborhood)) throw new Error("Você só pode alterar solicitações do seu bairro.");
 }
 
 export async function deleteRequest(id: number) {
@@ -1187,7 +1198,7 @@ export async function listAdminAccounts() {
 export async function deleteAdminAccountsExcept(keepUserId: number) {
   const database = await getDb();
   if (!database) throw new Error("Database not available");
-  const extras = (await database.select({ id: users.id }).from(users).where(and(eq(users.role, "admin"), ne(users.id, keepUserId)))).map((row) => row.id);
+  const extras = (await database.select({ id: users.id, openId: users.openId }).from(users).where(and(eq(users.role, "admin"), ne(users.id, keepUserId)))).filter((row) => !isNeighborhoodAdminOpenId(row.openId)).map((row) => row.id);
   for (const userId of extras) {
     await database.delete(appNotifications).where(eq(appNotifications.userId, userId));
     await database.delete(notificationPreferences).where(eq(notificationPreferences.userId, userId));

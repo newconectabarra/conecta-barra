@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { Alert, ScrollView, StyleSheet, Text, View } from "react-native";
+import { IconSymbol } from "@/components/ui/icon-symbol";
 import { Pressable } from "@/components/pressable";
 import { CachedImage } from "@/components/cached-image";
 import { router, useLocalSearchParams } from "expo-router";
@@ -125,31 +126,17 @@ export default function RequestDetailScreen() {
               <Text style={{ color: colors.muted }}>Nenhuma imagem anexada.</Text>
             </View>
           )}
-          <Text style={[styles.section, { color: colors.foreground }]}>Alterar status</Text>
+          <Text style={[styles.section, { color: colors.foreground }]}>Atualizar andamento</Text>
+          <Text style={[styles.statusHint, { color: colors.muted }]}>O status selecionado fica destacado. Toque em uma opção para registrar a mudança.</Text>
           <View style={styles.statusGrid}>
-            {statuses.map((status) => (
-              <Pressable
-                key={status.value}
-                onPress={() => update.mutate({ id, status: status.value })}
-                style={[
-                  styles.status,
-                  {
-                    borderColor: status.color,
-                    backgroundColor: item.status === status.value ? status.color : status.color + "16",
-                  },
-                ]}
-              >
-                <Text
-                  style={{
-                    color: item.status === status.value ? "#fff" : status.color,
-                    fontWeight: "800",
-                    fontSize: 12,
-                  }}
-                >
-                  {status.label}
-                </Text>
-              </Pressable>
-            ))}
+            {statuses.map((status) => {
+              const active = item.status === status.value;
+              return <Pressable key={status.value} accessibilityRole="radio" accessibilityState={{ selected: active, disabled: update.isPending }} onPress={() => update.mutate({ id, status: status.value })} style={({ pressed }) => [styles.status, { borderColor: status.color, backgroundColor: active ? status.color : status.color + "12" }, active && styles.statusActive, pressed && styles.pressed, update.isPending && styles.disabled]}>
+                <View style={[styles.statusIcon, { backgroundColor: active ? "#FFFFFF30" : status.color + "18" }]}><IconSymbol name={active ? "checkmark" : "circle"} size={15} color={active ? "#FFFFFF" : status.color} /></View>
+                <Text style={{ color: active ? "#FFFFFF" : status.color, fontWeight: "900", fontSize: 12 }}>{status.label}</Text>
+                {active && <Text style={styles.currentStatus}>ATUAL</Text>}
+              </Pressable>;
+            })}
           </View>
           <Pressable onPress={deleteItem} style={[styles.delete, { borderColor: colors.error }]}>
             <Text style={{ color: colors.error, fontWeight: "900" }}>Excluir solicitação</Text>
@@ -175,7 +162,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   section: { fontSize: 18, fontWeight: "900", marginTop: 6 },
-  statusGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  status: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 10 },
+  statusHint: { fontSize: 12, lineHeight: 18, marginTop: -7 },
+  statusGrid: { gap: 9 },
+  status: { minHeight: 58, borderWidth: 1.5, borderRadius: 17, paddingHorizontal: 13, paddingVertical: 9, flexDirection: "row", alignItems: "center", gap: 9 },
+  statusActive: { shadowColor: "#0B3B8C", shadowOpacity: 0.18, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 3 },
+  statusIcon: { width: 30, height: 30, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  currentStatus: { marginLeft: "auto", color: "#FFFFFF", fontSize: 9, fontWeight: "900", letterSpacing: 0.6 },
+  disabled: { opacity: 0.55 },
   delete: { borderWidth: 1, borderRadius: 14, padding: 15, alignItems: "center", marginTop: 8 },
 });

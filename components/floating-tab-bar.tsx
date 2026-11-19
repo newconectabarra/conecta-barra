@@ -5,8 +5,10 @@ import * as Haptics from "expo-haptics";
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { CachedImage } from "@/components/cached-image";
 import { BRAND } from "@/constants/brand";
 import { useColors } from "@/hooks/use-colors";
+import { getApiBaseUrl } from "@/constants/oauth";
 
 type IconName = React.ComponentProps<typeof IconSymbol>["name"];
 const ICONS: Record<string, { icon: IconName; label: string }> = {
@@ -18,7 +20,7 @@ const ICONS: Record<string, { icon: IconName; label: string }> = {
 };
 
 /** Barra de navegação flutuante, arredondada, com pílula animada na aba ativa e badge de avisos. */
-export function FloatingTabBar({ state, navigation, badges }: BottomTabBarProps & { badges?: Record<string, number> }) {
+export function FloatingTabBar({ state, navigation, badges, avatarUrl }: BottomTabBarProps & { badges?: Record<string, number>; avatarUrl?: string | null }) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const visible = state.routes.filter((route) => ICONS[route.name]);
@@ -30,7 +32,7 @@ export function FloatingTabBar({ state, navigation, badges }: BottomTabBarProps 
           const meta = ICONS[route.name];
           const badge = badges?.[route.name] ?? 0;
           return (
-            <TabItem key={route.key} focused={focused} icon={meta.icon} label={meta.label} badge={badge}
+            <TabItem key={route.key} focused={focused} icon={meta.icon} label={meta.label} badge={badge} avatarUrl={route.name === "profile" && avatarUrl ? (avatarUrl.startsWith("http") ? avatarUrl : `${getApiBaseUrl()}${avatarUrl}`) : null}
               onPress={() => {
                 void Haptics.selectionAsync().catch(() => undefined);
                 const event = navigation.emit({ type: "tabPress", target: route.key, canPreventDefault: true });
@@ -44,7 +46,7 @@ export function FloatingTabBar({ state, navigation, badges }: BottomTabBarProps 
   );
 }
 
-function TabItem({ focused, icon, label, badge, onPress, onLongPress }: { focused: boolean; icon: IconName; label: string; badge: number; onPress: () => void; onLongPress: () => void }) {
+function TabItem({ focused, icon, label, badge, avatarUrl, onPress, onLongPress }: { focused: boolean; icon: IconName; label: string; badge: number; avatarUrl?: string | null; onPress: () => void; onLongPress: () => void }) {
   const colors = useColors();
   const progress = useRef(new Animated.Value(focused ? 1 : 0)).current;
   useEffect(() => {
@@ -56,7 +58,7 @@ function TabItem({ focused, icon, label, badge, onPress, onLongPress }: { focuse
     <Pressable accessibilityRole="tab" accessibilityState={{ selected: focused }} accessibilityLabel={badge ? `${label}, ${badge} novos` : label} onPress={onPress} onLongPress={onLongPress} hitSlop={4}>
       <Animated.View style={[styles.item, { width, backgroundColor: bg }]}>
         <View>
-          <Animated.View style={{ transform: [{ scale: progress.interpolate({ inputRange: [0, 1], outputRange: [1, 1.08] }) }] }}><IconSymbol name={icon} size={23} color={focused ? "#FFFFFF" : colors.muted} /></Animated.View>
+          <Animated.View style={{ transform: [{ scale: progress.interpolate({ inputRange: [0, 1], outputRange: [1, 1.08] }) }] }}>{avatarUrl ? <CachedImage source={{ uri: avatarUrl }} style={styles.avatar} /> : <IconSymbol name={icon} size={23} color={focused ? "#FFFFFF" : colors.muted} />}</Animated.View>
           {badge > 0 && !focused && <View style={[styles.badge, { backgroundColor: colors.error }]}><Text style={styles.badgeText}>{badge > 9 ? "9+" : badge}</Text></View>}
         </View>
         {focused && <Text numberOfLines={1} style={styles.label}>{label}</Text>}
@@ -69,6 +71,7 @@ const styles = StyleSheet.create({
   wrap: { position: "absolute", left: 0, right: 0, bottom: 0, alignItems: "center", paddingHorizontal: 14 },
   bar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", width: "100%", maxWidth: 460, borderRadius: 34, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 8, shadowColor: "#062B5E", shadowOpacity: 0.26, shadowRadius: 24, shadowOffset: { width: 0, height: 8 }, elevation: Platform.OS === "android" ? 14 : 0 },
   item: { height: 48, borderRadius: 24, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, overflow: "hidden" },
+  avatar: { width: 28, height: 28, borderRadius: 14, borderWidth: 2, borderColor: "#FFFFFF" },
   label: { color: "#FFFFFF", fontSize: 12.5, fontWeight: "800", letterSpacing: 0.1 },
   badge: { position: "absolute", top: -7, right: -9, minWidth: 17, height: 17, borderRadius: 9, paddingHorizontal: 3, alignItems: "center", justifyContent: "center", borderWidth: 1.5, borderColor: "#FFFFFF" },
   badgeText: { color: "#FFFFFF", fontSize: 9, fontWeight: "900" },

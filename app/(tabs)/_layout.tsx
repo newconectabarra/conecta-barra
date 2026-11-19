@@ -23,7 +23,7 @@ export default function TabLayout() {
   return (
     <Tabs
       screenOptions={{ animation: "fade", headerShown: false, sceneStyle: { paddingBottom: 78 + Math.max(insets.bottom, 10) } }}
-      tabBar={(props) => <FloatingTabBar {...props} badges={{ notifications: unread }} />}
+      tabBar={(props) => <FloatingTabBar {...props} badges={{ notifications: unread }} avatarUrl={meQuery.data?.avatarUrl ?? null} />}
     >
       <Tabs.Screen name="index" options={{ title: "Início" }} />
       <Tabs.Screen name="requests" options={{ title: "Pedidos" }} />
