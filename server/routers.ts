@@ -283,7 +283,7 @@ export const appRouter = router({
       const normalizedUsername = username.toLowerCase();
       const credential = await db.getResidentCredentialByUsername(normalizedUsername);
       if (!credential || !(await verifyPassword(input.password, credential.passwordHash))) throw new TRPCError({ code: "UNAUTHORIZED", message: "Usuário ou senha inválidos." });
-      const user = await db.getUserByOpenId(`local_${normalizedUsername}`);
+      const user = await db.getUserById(credential.userId);
       if (!user) throw new TRPCError({ code: "UNAUTHORIZED", message: "Usuário não encontrado." });
       const pendingEmailVerification = credential.email ? await db.getLatestEmailVerificationCode(user.id) : undefined;
       if (pendingEmailVerification && !credential.emailVerifiedAt) throw new TRPCError({ code: "FORBIDDEN", message: "Confirme seu e-mail pelo código recebido antes de entrar." });
